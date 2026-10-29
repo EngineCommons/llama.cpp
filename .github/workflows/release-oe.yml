@@ -1,0 +1,58 @@
+name: Release .oe bundles
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "ggml-org/llama.cpp release tag to wrap (empty: newest bNNNN release)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-oe
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Make linked .oe bundles
+        id: make
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: python3 scripts/make_oe.py --repo ggml-org/llama.cpp --tag "$TAG" --out dist
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.make.outputs.tag }}
+          UPSTREAM_URL: ${{ steps.make.outputs.url }}
+          COUNT: ${{ steps.make.outputs.count }}
+        run: |
+          {
+            echo "Linked Open Engine bundles for llama.cpp [$TAG]($UPSTREAM_URL)."
+            echo
+            echo "Each \`.oe\` file holds only an \`openengine.json\` whose \`download\` field points at the"
+            echo "matching upstream asset, so runners download the engine itself from ggml-org/llama.cpp."
+            echo
+            echo "| Bundle | Upstream asset |"
+            echo "| --- | --- |"
+            for f in dist/*.oe; do
+              asset=$(unzip -p "$f" openengine.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["metadata"]["asset"])')
+              echo "| \`$(basename "$f")\` | \`$asset\` |"
+            done
+          } > notes.md
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "llama.cpp $TAG" --notes-file notes.md
+            gh release upload "$TAG" dist/*.oe --clobber
+          else
+            gh release create "$TAG" dist/*.oe --title "llama.cpp $TAG" --notes-file notes.md --target "$GITHUB_SHA"
+          fi
+          echo "Published $COUNT bundles to $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG" >> "$GITHUB_STEP_SUMMARY"

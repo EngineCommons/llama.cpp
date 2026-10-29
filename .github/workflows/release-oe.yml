@@ -35,24 +35,15 @@ jobs:
           UPSTREAM_URL: ${{ steps.make.outputs.url }}
           COUNT: ${{ steps.make.outputs.count }}
         run: |
-          {
-            echo "Linked Open Engine bundles for llama.cpp [$TAG]($UPSTREAM_URL)."
-            echo
-            echo "Each \`.oe\` file holds only an \`openengine.json\` whose \`download\` field points at the"
-            echo "matching upstream asset, so runners download the engine itself from ggml-org/llama.cpp."
-            echo
-            echo "| Bundle | Upstream asset |"
-            echo "| --- | --- |"
-            for f in dist/*.oe; do
-              asset=$(unzip -p "$f" openengine.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["metadata"]["asset"])')
-              echo "| \`$(basename "$f")\` | \`$asset\` |"
-            done
-          } > notes.md
+          cat > notes.md <<EOF
+          Linked Open Engine bundles for llama.cpp [$TAG]($UPSTREAM_URL).
 
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release edit "$TAG" --title "llama.cpp $TAG" --notes-file notes.md
-            gh release upload "$TAG" dist/*.oe --clobber
-          else
-            gh release create "$TAG" dist/*.oe --title "llama.cpp $TAG" --notes-file notes.md --target "$GITHUB_SHA"
-          fi
+          Each \`.oe\` file holds only an \`openengine.json\` whose \`download\` field points at the matching upstream asset, so runners download the engine itself from ggml-org/llama.cpp.
+          EOF
+
+          gh release list --limit 1000 --json tagName --jq '.[].tagName' | while read -r old; do
+            gh release delete "$old" --cleanup-tag --yes
+          done
+
+          gh release create "$TAG" dist/*.oe --title "llama.cpp $TAG" --notes-file notes.md --target "$GITHUB_SHA"
           echo "Published $COUNT bundles to $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG" >> "$GITHUB_STEP_SUMMARY"
